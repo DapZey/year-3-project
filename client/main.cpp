@@ -1,10 +1,21 @@
 #include "raylib.h"
 #include "vector"
 #include <stdlib.h>
+#include <math.h>
+#include "deque"
+#include "iostream"
 
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
 #define TARGET_FPS 1000
+
+// Lerp function for Vector2
+Vector2 Vector2Lerp(Vector2 start, Vector2 end, float t) {
+    return (Vector2){
+            start.x + (end.x - start.x) * t,
+            start.y + (end.y - start.y) * t
+    };
+}
 
 void changeRGB(std::vector<int>& rgbSelectorValues, int index) {
     if (IsKeyDown(KEY_SPACE)) {
@@ -24,13 +35,13 @@ void changeRGB(std::vector<int>& rgbSelectorValues, int index) {
 int main() {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Drawing Game");
     SetTargetFPS(TARGET_FPS);
-    SetConfigFlags(FLAG_MSAA_4X_HINT);
 
     RenderTexture2D drawingCanvas = LoadRenderTexture(2 * (WINDOW_WIDTH/3), WINDOW_HEIGHT);
     BeginTextureMode(drawingCanvas);
     ClearBackground(BLANK);
     EndTextureMode();
     Rectangle source = {0, 0, static_cast<float>(drawingCanvas.texture.width), static_cast<float>(-drawingCanvas.texture.height)};
+    Rectangle sourceYFlipped = {0, 0, static_cast<float>(drawingCanvas.texture.width), static_cast<float>(drawingCanvas.texture.height)};
     Rectangle dest = {WINDOW_WIDTH/3, 0, 2*(WINDOW_WIDTH/3), WINDOW_HEIGHT};
 
     float Player1Score = 0;
@@ -43,23 +54,62 @@ int main() {
     Color ALT_COLOR_WEAK = (Color){ 54, 238, 224, 255 };
     std::vector<int> rgbSelectorValues = {255, 0, 0};
 
+    Vector2 lastMousePos = {0, 0};
+    bool wasMouseDown = false;
+    std::deque<RenderTexture2D> savedCanvasVersions;
+    int canvasIndex = 0;
     while (!WindowShouldClose()) {
-        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-            if (CheckCollisionPointRec(GetMousePosition(), imageDrawingBounds)) {
-                BeginTextureMode(drawingCanvas);
-                Vector2 canvasPos = {
-                        GetMousePosition().x - WINDOW_WIDTH/3,  // Adjust mouse position to canvas coordinates
-                        GetMousePosition().y
-                };
-                DrawCircle(canvasPos.x, canvasPos.y, brushSize*5,
-                           (Color){ static_cast<unsigned char>(rgbSelectorValues[0]),
-                                    static_cast<unsigned char>(rgbSelectorValues[1]),
-                                    static_cast<unsigned char>(rgbSelectorValues[2]),
-                                    255});
-                EndTextureMode();
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){
+            RenderTexture2D currentCanvas = LoadRenderTexture(2 * (WINDOW_WIDTH/3), WINDOW_HEIGHT);
+            BeginTextureMode(currentCanvas);
+            DrawTextureV(drawingCanvas.texture,{0,0}, WHITE);
+            EndTextureMode();
+            savedCanvasVersions.push_back(currentCanvas);
+            if (savedCanvasVersions.size() >5){
+                UnloadRenderTexture(savedCanvasVersions[0]);
+                savedCanvasVersions.pop_front();
             }
         }
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            if (CheckCollisionPointRec(GetMousePosition(), imageDrawingBounds)) {
+                Vector2 currentMousePos = {
+                        GetMousePosition().x - WINDOW_WIDTH/3,
+                        GetMousePosition().y
+                };
 
+                BeginTextureMode(drawingCanvas);
+                if (!wasMouseDown) {
+                    DrawCircle(currentMousePos.x, currentMousePos.y, brushSize*5,
+                               (Color){ static_cast<unsigned char>(rgbSelectorValues[0]),
+                                        static_cast<unsigned char>(rgbSelectorValues[1]),
+                                        static_cast<unsigned char>(rgbSelectorValues[2]),
+                                        255});
+                } else {
+                    float distance = sqrtf(powf(currentMousePos.x - lastMousePos.x, 2) +
+                                           powf(currentMousePos.y - lastMousePos.y, 2));
+                    int numPoints = (int)(distance / (brushSize * 2)) + 1;
+                    for (int i = 0; i <= numPoints; i++) {
+                        float t = (float)i / numPoints;
+                        Vector2 pos = Vector2Lerp(lastMousePos, currentMousePos, t);
+                        DrawCircle(pos.x, pos.y, brushSize*5,
+                                   (Color){ static_cast<unsigned char>(rgbSelectorValues[0]),
+                                            static_cast<unsigned char>(rgbSelectorValues[1]),
+                                            static_cast<unsigned char>(rgbSelectorValues[2]),
+                                            255});
+                    }
+                }
+                EndTextureMode();
+                lastMousePos = currentMousePos;
+                wasMouseDown = true;
+            }
+        } else {
+            wasMouseDown = false;
+        }
+        if (IsKeyPressed(KEY_BACKSPACE)){
+            BeginTextureMode(drawingCanvas);
+            ClearBackground(BLANK);
+            EndTextureMode();
+        }
         if (IsKeyPressed(KEY_R)) {
             changeRGB(rgbSelectorValues, 0);
         }
@@ -75,7 +125,16 @@ int main() {
                 brushSize = 1;
             }
         }
-
+        if (IsKeyPressed(KEY_RIGHT)){
+            canvasIndex++;
+            if (canvasIndex > 4){
+                canvasIndex = 0;
+            }
+            BeginTextureMode(drawingCanvas);
+            ClearBackground(WHITE);
+            DrawTextureV(savedCanvasVersions[canvasIndex].texture,{0,0}, WHITE);
+            EndTextureMode();
+        }
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
@@ -94,11 +153,15 @@ int main() {
                             static_cast<unsigned char>(rgbSelectorValues[1]),
                             static_cast<unsigned char>(rgbSelectorValues[2]),
                             255});
-        DrawTexturePro(drawingCanvas.texture, source, dest, (Vector2){0, 0}, 0.0f, WHITE);
+            DrawTexturePro(drawingCanvas.texture, source, dest, (Vector2){0, 0}, 0.0f, WHITE);
         DrawText(TextFormat("CURRENT FPS: %i",GetFPS()), 0, 600, 20, GREEN);
         EndDrawing();
     }
     UnloadRenderTexture(drawingCanvas);
+    for (RenderTexture2D texture : savedCanvasVersions){
+        UnloadRenderTexture(texture);
+    }
+    savedCanvasVersions.clear();
     CloseWindow();
     return 0;
 }
