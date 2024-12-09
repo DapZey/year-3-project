@@ -6,7 +6,7 @@ from multiprocessing import freeze_support
 
 def analyze_images(model, processor, id):
     image1 = Image.open(f"client{id}.png")
-    image2 = Image.open("client1.png")
+    image2 = Image.open("im.png")
 
     # Process the images
     inputs = processor(text=[""], images=[image1, image2], return_tensors="pt", padding=True)
