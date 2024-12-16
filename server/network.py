@@ -6,11 +6,13 @@ import io
 import images
 
 class Client:
-    def __init__(self, client_id):
+    def __init__(self, client_id, model, processor):
         self.id = client_id
         self.q = queue.Queue()
         self.should_run = threading.Event()
         self.should_run.set()  # Start in running state
+        self.model = model
+        self.processor = processor
 
     def send(self):
         while self.should_run.is_set():
@@ -30,45 +32,53 @@ class Client:
             except Exception as e:
                 print(f"Error processing image: {e}")
             self.q.task_done()
+            print(f"analyzing image from client {id}")
+            images.analyze_images(self.model,self.processor,self.id)
+            print("hello")
 
     def recv(self, connection, address):
         START_DELIMITER = b'<IMAGE_START>'
         END_DELIMITER = b'<IMAGE_END>'
 
+        # Set timeout on the connection socket
+        connection.settimeout(1.0)
+
         while self.should_run.is_set():
             try:
                 image_data = b''
                 while self.should_run.is_set():
-                    chunk = connection.recv(1024)
-                    if not chunk:
-                        break
+                    try:
+                        chunk = connection.recv(1024)
+                        if not chunk:
+                            break
 
-                    if START_DELIMITER in chunk:
-                        image_data = chunk[chunk.find(START_DELIMITER) + len(START_DELIMITER):]
+                        if START_DELIMITER in chunk:
+                            image_data = chunk[chunk.find(START_DELIMITER) + len(START_DELIMITER):]
+                            continue
+
+                        if END_DELIMITER in chunk:
+                            image_data += chunk[:chunk.find(END_DELIMITER)]
+                            print("Server received complete image")
+                            self.q.put(image_data)
+                            image_data = b''  # Reset buffer
+                            continue
+
+                        image_data += chunk
+                    except socket.timeout:
                         continue
-
-                    if END_DELIMITER in chunk:
-                        image_data += chunk[:chunk.find(END_DELIMITER)]
-                        print("Server received complete image")
-                        self.q.put(image_data)
-                        image_data = b''  # Reset buffer
-                        continue
-
-                    image_data += chunk
-
             except Exception as e:
                 print(f"Error receiving data: {e}")
                 break
-
             if not chunk:
                 break
+        try:
+            connection.close()
+        except:
+            pass
+        print("hello 2")
 
 
-def main():
-    images.freeze_support()
-    model = images.CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-    processor = images.CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    images.analyze_images(model,processor,0)
+def main(model, processor):
     server_should_run = threading.Event()
     server_should_run.set()
 
@@ -103,7 +113,7 @@ def main():
                     connection.close()
                     continue
                 else:
-                    client = Client(len(clients))
+                    client = Client(len(clients), model, processor)
                     clients.append(client)
 
                     recv_thread = threading.Thread(
@@ -129,6 +139,9 @@ def main():
             client.should_run.clear()
     finally:
         server_socket.close()
+        server_should_run.clear()
+        for client in clients:
+            client.should_run.clear()
         for client in clients:
             client.q.put(None)
         for t in threads:
