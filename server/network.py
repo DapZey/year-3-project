@@ -6,15 +6,17 @@ import io
 import images
 
 class Client:
-    def __init__(self, client_id, model, processor):
+    def __init__(self, client_id, model, processor, connection, address):
         self.id = client_id
         self.q = queue.Queue()
         self.should_run = threading.Event()
         self.should_run.set()  # Start in running state
         self.model = model
         self.processor = processor
+        self.connection = connection
+        self.address = address
 
-    def send(self,connection, address):
+    def send(self,clients):
         while self.should_run.is_set():
             try:
                 # Add timeout to queue.get() so we can check should_run
@@ -32,30 +34,36 @@ class Client:
             except Exception as e:
                 print(f"Error processing image: {e}")
             self.q.task_done()
-            print(f"analyzing image from client {id}")
+            print(f"analyzing image from client {self.id}")
             score = images.analyze_images(self.model, self.processor, self.id)
 
             # Send the score back to the client
-            score_message = str(score).encode()  # Convert score to bytes
-            connection.sendall(score_message)  # Use sendall for reliable sending
+            score_message_self = (f"/" +str(score)).encode()
+            score_message_other = (f"|" + str(score)).encode()
+            for client in clients:
+                if client == self:
+                    client.connection.sendall(score_message_self)
+                    client.connection.sendall(b"&")
+                else:
+                    client.connection.sendall(score_message_other)
 
-
-    def recv(self, connection, address):
+    def recv(self):
         START_DELIMITER = b'<IMAGE_START>'
         END_DELIMITER = b'<IMAGE_END>'
 
         # Set timeout on the connection socket
-        connection.settimeout(1.0)
+        self.connection.settimeout(1.0)
 
         while self.should_run.is_set():
             try:
                 image_data = b''
                 while self.should_run.is_set():
                     try:
-                        chunk = connection.recv(1024)
+                        chunk = self.connection.recv(1024)
+                        if chunk == b'&':
+                            print("REQQIE BABIE WOOOO")
                         if not chunk:
                             break
-
                         if START_DELIMITER in chunk:
                             image_data = chunk[chunk.find(START_DELIMITER) + len(START_DELIMITER):]
                             continue
@@ -76,7 +84,7 @@ class Client:
             if not chunk:
                 break
         try:
-            connection.close()
+            self.connection.close()
         except:
             pass
         print("hello 2")
@@ -117,20 +125,19 @@ def main(model, processor):
                     connection.close()
                     continue
                 else:
-                    client = Client(len(clients), model, processor)
+                    client = Client(len(clients), model, processor, connection, address)
                     clients.append(client)
 
                     recv_thread = threading.Thread(
                         target=client.recv,
-                        args=(connection, address),
                         daemon=True
                     )
                     send_thread = threading.Thread(
                         target=client.send,
-                        args=(connection, address),
+                        args=(clients,),
                         daemon=True
                     )
-
+                    client.connection.sendall(b"&")
                     recv_thread.start()
                     send_thread.start()
                     threads.append(recv_thread)
@@ -152,4 +159,4 @@ def main(model, processor):
         for t in threads:
             print("joining...")
             t.join()
-
+        
