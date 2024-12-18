@@ -8,6 +8,7 @@
 #include "thread"
 #include "atomic"
 #include <fstream>
+#include <queue>
 
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
@@ -75,6 +76,31 @@ void sendImage(boost::asio::io_context& io_context,
     thread_info.should_join = true;
 }
 
+std::atomic<bool> stop_recv{false};
+std::queue<std::string> data_queue;   // Shared queue
+std::mutex queue_mutex;               // Mutex to protect access to the queue
+
+void receiver(boost::asio::ip::tcp::socket& socket) {
+    char buffer[1024];
+    while (!stop_recv) {
+        try {
+            // Non-blocking receive attempt (may need a timeout or non-blocking socket)
+            size_t len = socket.receive(boost::asio::buffer(buffer));
+            if (len > 0) {
+                std::string data(buffer, len);
+                {
+                    std::lock_guard<std::mutex> lock(queue_mutex);
+                    data_queue.push(data);
+                }
+            }
+        } catch (const boost::system::system_error& e) {
+            std::cerr << "Error in receive: " << e.what() << std::endl;
+            if (e.code() == boost::asio::error::operation_aborted) {
+                break;
+            }
+        }
+    }
+}
 
 int main() {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Drawing Game");
@@ -114,7 +140,17 @@ int main() {
         std::cerr<< "\nFailed to connect to server\nTerminating...";
         exit(-2);
     }
+    std::thread receive_thread([&socket]() { receiver(socket); });
     while (!WindowShouldClose()) {
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            while (!data_queue.empty()) {
+                std::string data = data_queue.front();
+                data_queue.pop();
+                std::cout << "Processing data: " << data << std::endl;
+                // Do something with the data (e.g., rendering, game logic)
+            }
+        }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){
             canvasIndex = (int)savedCanvasVersions.size()-1;
             RenderTexture2D currentCanvas = LoadRenderTexture(2 * (WINDOW_WIDTH/3), WINDOW_HEIGHT);
@@ -228,8 +264,10 @@ int main() {
             }
         }
     }
+    stop_recv = true;
     socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both);
     socket.close();
+    receive_thread.join();
     UnloadRenderTexture(drawingCanvas);
     for (RenderTexture2D texture : savedCanvasVersions){
         UnloadRenderTexture(texture);
