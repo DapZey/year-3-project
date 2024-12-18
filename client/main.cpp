@@ -10,6 +10,8 @@
 #include <fstream>
 #include <queue>
 
+#define SCORE_DELIMITER_SELF '/'
+#define SCORE_DELIMITER_OTHER '|'
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
 #define TARGET_FPS 1000
@@ -38,6 +40,17 @@ void changeRGB(std::vector<int>& rgbSelectorValues, int index) {
     if (rgbSelectorValues[index] > 255) {
         rgbSelectorValues[index] -= 255;
     }
+}
+void async_send(boost::asio::ip::tcp::socket& socket, const std::string& message) {
+    boost::asio::async_write(
+            socket, boost::asio::buffer(message),
+            [](boost::system::error_code ec, std::size_t bytes_transferred) {
+                if (!ec) {
+                    std::cout << "Message sent, bytes: " << bytes_transferred << std::endl;
+                } else {
+                    std::cerr << "Send error: " << ec.message() << std::endl;
+                }
+            });
 }
 ThreadInfo thread_info;
 void sendImage(boost::asio::io_context& io_context,
@@ -69,6 +82,7 @@ void sendImage(boost::asio::io_context& io_context,
         std::cout << "Image sent successfully." << std::endl;
     } catch (const boost::system::system_error& e) {
         std::cerr << "Error sending image: " << e.what() << std::endl;
+        async_send(socket, "ERROR");
     }
 
     SetWindowIcon(tosend);
@@ -147,8 +161,26 @@ int main() {
             while (!data_queue.empty()) {
                 std::string data = data_queue.front();
                 data_queue.pop();
-                std::cout << "Processing data: " << data << std::endl;
-                // Do something with the data (e.g., rendering, game logic)
+                std::cout << data<<"\n";
+                if (data[0] == SCORE_DELIMITER_SELF){
+                    Player1Score = std::stof(data.substr(1,data.size()));
+                    std::cout<<Player1Score<<"\n";
+                }
+                else if (data[0] == SCORE_DELIMITER_OTHER){
+                        Player2score = std::stof(data.substr(1,data.size()));
+                        std::cout<<Player2score<<"\n";
+                }
+                if (data[0] == '&') {
+                    if (!thread_info.thread) {
+                        Image im = LoadImageFromTexture(drawingCanvas.texture);
+                        thread_info.should_join = false; // Reset join flag
+                        thread_info.thread = std::make_unique<std::thread>(
+                                [&]() { sendImage(io_context, socket, im); });
+                    }
+                    else {
+                        async_send(socket, "&");
+                    }
+                }
             }
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){
@@ -235,7 +267,7 @@ int main() {
         DrawRectangle(0, 0, WINDOW_WIDTH/3, WINDOW_HEIGHT, BG_COLOR);
         DrawRectangle(0, 720, WINDOW_WIDTH/3, WINDOW_HEIGHT/3, ALT_COLOR_STRONG);
         RaylibDrawText(TextFormat("Your Drawing Score: %f", Player1Score), 20, 20, 25, TEXT_COLOR);
-        RaylibDrawText(TextFormat("Opponent Drawing Score: %f", Player1Score), 20, 50, 25, TEXT_COLOR);
+        RaylibDrawText(TextFormat("Opponent Drawing Score: %f", Player2score), 20, 50, 25, TEXT_COLOR);
         RaylibDrawText(TextFormat("Time Left: %f", Player1Score), 20, 100, 30, TEXT_COLOR);
         RaylibDrawText("press the letters R,G,B to change rgb\n R,G,B + CNTRL to change by 10 \n R,G,B + SPACE to change by 100", 20, 250, 30, TEXT_COLOR);
         RaylibDrawText(TextFormat("R: %d G: %d B: %d", rgbSelectorValues[0], rgbSelectorValues[1], rgbSelectorValues[2]), 20, 400, 30, TEXT_COLOR);
@@ -249,13 +281,6 @@ int main() {
         DrawTexturePro(drawingCanvas.texture, source, dest, (Vector2){0, 0}, 0.0f, WHITE);
         RaylibDrawText(TextFormat("CURRENT FPS: %i",GetFPS()), 0, 600, 20, GREEN);
         EndDrawing();
-        if (IsKeyPressed(KEY_LEFT_SHIFT) && !thread_info.thread) {
-            Image im = LoadImageFromTexture(drawingCanvas.texture);
-            thread_info.should_join = false; // Reset join flag
-            thread_info.thread = std::make_unique<std::thread>(
-                    [&]() { sendImage(io_context, socket, im); });
-        }
-
         if (thread_info.thread && thread_info.should_join) {
             if (thread_info.thread->joinable()) {
                 thread_info.thread->join();
@@ -278,3 +303,4 @@ int main() {
     RaylibCloseWindow();
     return 0;
 }
+
