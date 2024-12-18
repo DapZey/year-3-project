@@ -14,7 +14,7 @@ class Client:
         self.model = model
         self.processor = processor
 
-    def send(self):
+    def send(self,connection, address):
         while self.should_run.is_set():
             try:
                 # Add timeout to queue.get() so we can check should_run
@@ -33,8 +33,12 @@ class Client:
                 print(f"Error processing image: {e}")
             self.q.task_done()
             print(f"analyzing image from client {id}")
-            images.analyze_images(self.model,self.processor,self.id)
-            print("hello")
+            score = images.analyze_images(self.model, self.processor, self.id)
+
+            # Send the score back to the client
+            score_message = str(score).encode()  # Convert score to bytes
+            connection.sendall(score_message)  # Use sendall for reliable sending
+
 
     def recv(self, connection, address):
         START_DELIMITER = b'<IMAGE_START>'
@@ -123,6 +127,7 @@ def main(model, processor):
                     )
                     send_thread = threading.Thread(
                         target=client.send,
+                        args=(connection, address),
                         daemon=True
                     )
 
