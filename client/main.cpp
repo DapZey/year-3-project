@@ -9,6 +9,7 @@
 #include "atomic"
 #include <fstream>
 #include <queue>
+#include <chrono>
 
 #define SCORE_DELIMITER_SELF '/'
 #define SCORE_DELIMITER_OTHER '|'
@@ -16,7 +17,6 @@
 #define WINDOW_HEIGHT 1080
 #define TARGET_FPS 1000
 
-// Lerp function for Vector2
 Vector2 Vector2Lerp(Vector2 start, Vector2 end, float t) {
     return (Vector2){
             start.x + (end.x - start.x) * t,
@@ -58,11 +58,10 @@ void sendImage(boost::asio::io_context& io_context,
                Image tosend) {
     const char* START_DELIMITER = "<IMAGE_START>";
     const char* END_DELIMITER = "<IMAGE_END>";
-
     ImageFlipVertical(&tosend);
     ExportImage(tosend, "output.png");
+    std::cout<<"exported image\n";
     try {
-        // Send start delimiter
         boost::asio::write(socket, boost::asio::buffer(START_DELIMITER, strlen(START_DELIMITER)));
 
         std::ifstream file("output.png", std::ios::binary);
@@ -76,18 +75,22 @@ void sendImage(boost::asio::io_context& io_context,
         while (file.read(buffer, buffer_size) || file.gcount() > 0) {
             boost::asio::write(socket, boost::asio::buffer(buffer, file.gcount()));
         }
-
-        // Send end delimiter
-        boost::asio::write(socket, boost::asio::buffer(END_DELIMITER, strlen(END_DELIMITER)));
+        std::cout<<"sent file\n";
+        async_send(socket, END_DELIMITER);
         std::cout << "Image sent successfully." << std::endl;
     } catch (const boost::system::system_error& e) {
         std::cerr << "Error sending image: " << e.what() << std::endl;
         async_send(socket, "ERROR");
+        SetWindowIcon(tosend);
+        UnloadImage(tosend);
+        thread_info.should_join = true;
+        return;
     }
 
     SetWindowIcon(tosend);
     UnloadImage(tosend);
     thread_info.should_join = true;
+    std::cout<<"finished thread\n";
 }
 
 std::atomic<bool> stop_recv{false};
@@ -126,7 +129,6 @@ int main() {
     RaylibRectangle source = {0, 0, static_cast<float>(drawingCanvas.texture.width), static_cast<float>(-drawingCanvas.texture.height)};
     RaylibRectangle sourceYFlipped = {0, 0, static_cast<float>(drawingCanvas.texture.width), static_cast<float>(drawingCanvas.texture.height)};
     RaylibRectangle dest = {WINDOW_WIDTH / 3, 0, 2 * (WINDOW_WIDTH / 3), WINDOW_HEIGHT};
-
     float Player1Score = 0;
     float Player2score = 0;
     int brushSize = 3;
@@ -155,6 +157,8 @@ int main() {
         exit(-2);
     }
     std::thread receive_thread([&socket]() { receiver(socket); });
+
+    bool readyToProcess = false;
     while (!WindowShouldClose()) {
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
@@ -171,19 +175,21 @@ int main() {
                         std::cout<<Player2score<<"\n";
                 }
                 if (data[0] == '&') {
-                    if (!thread_info.thread) {
-                        Image im = LoadImageFromTexture(drawingCanvas.texture);
-                        thread_info.should_join = false; // Reset join flag
-                        thread_info.thread = std::make_unique<std::thread>(
-                                [&]() { sendImage(io_context, socket, im); });
-                    }
-                    else {
-                        async_send(socket, "&");
-                    }
+                    readyToProcess = true;
                 }
             }
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){
+            if (!thread_info.thread && readyToProcess) {
+                Image im = LoadImageFromTexture(drawingCanvas.texture);
+                thread_info.should_join = false; // Reset join flag
+                thread_info.thread = std::make_unique<std::thread>(
+                        [&]() { sendImage(io_context, socket, im); });
+                readyToProcess = false;
+            }
+            else {
+                std::cerr<<"image process thread busy!\n";
+            }
             canvasIndex = (int)savedCanvasVersions.size()-1;
             RenderTexture2D currentCanvas = LoadRenderTexture(2 * (WINDOW_WIDTH/3), WINDOW_HEIGHT);
             BeginTextureMode(currentCanvas);
@@ -303,4 +309,3 @@ int main() {
     RaylibCloseWindow();
     return 0;
 }
-
