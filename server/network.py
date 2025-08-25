@@ -45,81 +45,96 @@ def recv():
     try:
         message, address = server_socket.recvfrom(30000)
         address_tuple = address
-
-        # Start or continuation of image data
-        if message.startswith(b'reqc1'):
-            c1tuple = address_tuple
-            send("c:"+ str(client1currentcategory), address_tuple)
-        if message.startswith(b'reqc2'):
-            c2tuple = address_tuple
-            send("c:"+ str(client2currentcategory),address_tuple)
+        if message.startswith(b'req'):
+            if c1tuple == None:
+                c1tuple = address_tuple
+                send("c:"+str(client1currentcategory),c1tuple)
+                send("t:" + str(len(client1categories)), c1tuple)
+                send("w:",c1tuple)
+            elif c2tuple == None:
+                c2tuple = address_tuple
+                send("c:" + str(client2currentcategory), c2tuple)
+                send("t:" + str(len(client2categories)), c2tuple)
+                send("s:", c1tuple)
+                send("s:", c2tuple)
+            else:
+                send("err conn",address_tuple)
 
         if message.startswith(b'CLIENTPNG:'):
             try:
                 # Extract password and chunk
-                _, password_bytes, chunk_data = message.split(b':', 2)
-                password = password_bytes.decode()
+                header, chunk_data = message.split(b':', 1)
             except ValueError:
                 print("Malformed CLIENTPNG message")
                 return
 
-            if password == client1pwd:
+            if address_tuple == c1tuple:
                 image_buffer1 += chunk_data
                 print("Received chunk for client1")
-            elif password == client2pwd:
+            elif address_tuple == c2tuple:
                 image_buffer2 += chunk_data
                 print("Received chunk for client2")
             else:
-                print(f"Invalid password: {password}")
+                print(f"Invalid from addr")
 
         # End signal
         elif message.startswith(b'CLIENTPNG_END:'):
-            try:
-                _, password_bytes = message.split(b':', 1)
-                password = password_bytes.decode()
-            except ValueError:
-                print("Malformed CLIENTPNG_END message")
-                return
 
-            if password == client1pwd:
+            if address_tuple == c1tuple:
                 with open("received_client1.png", "wb") as f:
                     f.write(image_buffer1)
                 print("Saved image for client1")
                 try:
                     Image.open(io.BytesIO(image_buffer1))
                     x = predictclientimage("received_client1.png")
-                    if (x[0] == client1currentcategory):
-                        client1currentcategory = selectCategoryForClient(client1categories)
-                        send("c:" + str(client1currentcategory), address_tuple)
-                        send("os" + str(len(client1categories)), c2tuple)
+                    if (x[0] == client1currentcategory and x[1] > 0.1):
+                        if len(client1categories) == 0:
+                            send("v:", c1tuple)
+                            send("d:", c2tuple)
+                            resetGlobals()
+                        else:
+                            client1currentcategory = selectCategoryForClient(client1categories)
+                            send("c:" + str(client1currentcategory), address_tuple)
+                            send("o:" + str(len(client1categories)), c2tuple)
+                            send("o:" + str(len(client2categories)), c1tuple)
+                            send("t:" + str(len(client1categories)), c1tuple)
                     send(str(x), address_tuple)
                 except Exception as e:
                     print("Display failed for client1:", e)
                 image_buffer1.clear()
 
-            elif password == client2pwd:
+            elif address_tuple == c2tuple:
                 with open("received_client2.png", "wb") as f:
                     f.write(image_buffer2)
                 print("Saved image for client2")
                 try:
                     Image.open(io.BytesIO(image_buffer2))
                     x = predictclientimage("received_client2.png")
-                    if (x[0] == client2currentcategory):
-                        client2currentcategory = selectCategoryForClient(client2categories)
-                        send("c:" + str(client2currentcategory),address_tuple)
-                        send("os" + str(len(client2categories)), c1tuple)
+                    if (x[0] == client2currentcategory and x[1] > 0.1):
+                        if len(client2categories) == 0:
+                            send("v:", c2tuple)
+                            send("d:", c1tuple)
+                            resetGlobals()
+                        else:
+                            client2currentcategory = selectCategoryForClient(client2categories)
+                            send("c:" + str(client2currentcategory), address_tuple)
+                            send("o:" + str(len(client2categories)), c1tuple)
+                            send("o:" + str(len(client1categories)), c2tuple)
+                            send("t:" + str(len(client2categories)), c2tuple)
                     send(str(x), address_tuple)
                 except Exception as e:
                     print("Display failed for client2:", e)
                 image_buffer2.clear()
 
             else:
-                print(f"Invalid end password: {password}")
+                print(f"Invalid addr")
 
         else:
             print("Received other message:", message)
 
     except BlockingIOError:
+        pass
+    except ConnectionResetError as e:
         pass
 
 
@@ -128,5 +143,15 @@ def send(response, tuple):
         server_socket.sendto(response.encode(), tuple)
         print("Sent:", response)
 
-
+def resetGlobals():
+    global address_tuple,categories, image_buffer1, image_buffer2, client1currentcategory, client2currentcategory, client2categories, client1categories, c1tuple, c2tuple
+    c1tuple = None
+    c2tuple = None
+    image_buffer1.clear()
+    image_buffer2.clear()
+    client1categories = categories.copy()
+    client2categories = categories.copy()
+    client1currentcategory = selectCategoryForClient(client1categories)
+    client2currentcategory = selectCategoryForClient(client2categories)
+    address_tuple = None
 # Main loo
