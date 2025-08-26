@@ -4,7 +4,11 @@ project(Client)
 set(CMAKE_CXX_STANDARD 17)
 add_executable(Client main.cpp
         Canvas.cpp
-        Network.cpp)
+        Network.cpp
+        ConnectWindow.h
+        ConnectWindow.cpp
+        waitingWindow.h
+        waitingWindow.cpp)
 set(WINSOCK_LIBRARIES ws2_32)
 
 # Link against Winsock
