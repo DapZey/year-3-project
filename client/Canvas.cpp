@@ -10,15 +10,16 @@ Canvas::Canvas(int width, int height) {
         std::cerr<<"CANVAS WIDTH MUST BE DIVISIBLE BY THREE AND MUST MEET THE REQUIRED SIZE";
         exit(1);
     }
-    if (height%3 != 0 || height < minHeight){
-        std::cerr<<"CANVAS HEIGHT MUST BE DIVISIBLE BY THREE AND MUST MEET THE REQUIRED SIZE";
-        exit(1);
-    }
+//    if (height%3 != 0 || height < minHeight){
+//        std::cerr<<"CANVAS HEIGHT MUST BE DIVISIBLE BY THREE AND MUST MEET THE REQUIRED SIZE";
+//        exit(1);
+//    }
     canvasWidth = width;
     canvasHeight = height;
     canvasStartLeftX = (canvasWidth/3);
     std::cout<<canvasStartLeftX<<"\n";
     rendertexture2D = LoadRenderTexture(canvasStartLeftX*2,canvasHeight);
+    std::cout<<canvasStartLeftX*2<<"'"<<canvasHeight<<"\n";
     BeginTextureMode(rendertexture2D);
     ClearBackground(RAYWHITE);
     EndTextureMode();
@@ -36,6 +37,7 @@ void Canvas::drawInfoBoard() {
 
     RaylibDrawText(TextFormat("Categories left: %i", categoriesLeft),10,470,canvasStartLeftX/20,BLACK);
     RaylibDrawText(TextFormat("Opponent categories left: %i", categoriesLeftOpponent),10,500,canvasStartLeftX/20,BLACK);
+    RaylibDrawText(TextFormat("last prediction: %s", aiPredictedText.c_str()),10,550,canvasStartLeftX/20,BLACK);
 }
 void Canvas::drawCanvas() {
     if (IsKeyPressed(KEY_E)){
@@ -48,9 +50,7 @@ void Canvas::drawCanvas() {
         brushcolor = RAYWHITE;
     }
     if (IsKeyPressed(eraseKey)){
-        BeginTextureMode(rendertexture2D);
-        ClearBackground(RAYWHITE);
-        EndTextureMode();
+        ClearCanvas();
     }
     Vector2 mousePos = GetMousePosition();
     mousePos.x = mousePos.x-canvasStartLeftX;
@@ -90,4 +90,16 @@ void Canvas::drawCanvas() {
 
 Canvas::~Canvas() {
     UnloadRenderTexture(rendertexture2D);
+}
+void Canvas::ResetCanvas() {
+    ClearCanvas();
+    this->categoriesLeftOpponent = 10;
+    this->categoriesLeft = 10;
+    this->aiPredictedText = "-";
+    this->category = "-";
+}
+void Canvas::ClearCanvas() {
+    BeginTextureMode(rendertexture2D);
+    ClearBackground(RAYWHITE);
+    EndTextureMode();
 }
