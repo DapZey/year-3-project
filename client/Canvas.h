@@ -10,10 +10,10 @@
 #include "Network.h"
 class Canvas {
 public:
-    std::string category = "hbfgjnlmke";
-    int categoriesLeft = 11;
+    std::string category = "-";
+    int categoriesLeft = 10;
     int categoriesLeftOpponent = 10;
-
+    std::string aiPredictedText = "-";
     int minWidth = 800;
     int minHeight = 600;
     Canvas(int width, int height);
@@ -27,7 +27,7 @@ public:
 
     MouseButton drawbutton = MOUSE_BUTTON_LEFT;
     KeyboardKey eraseKey = KEY_BACKSPACE;
-    int drawCirleRadius = 15;
+    int drawCirleRadius = 7;
     void drawCanvas();
     Vector2 mousePosPrev = {};
     bool clickedPrev = false;
@@ -39,6 +39,10 @@ public:
     Color drawBoardColor = RED;
 
     bool ReadyToSendImageInput = false;
+
+    void ResetCanvas();
+
+    void ClearCanvas();
 };
 
 
