@@ -1,8 +1,9 @@
 import socket
 import io
 from PIL import Image
-from TEST import predictclientimage
+from TEST import predictclientimage, categories
 import random
+import time
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind(('', 54000))
@@ -16,14 +17,12 @@ client2pwd = "c2"
 image_buffer1 = bytearray()
 image_buffer2 = bytearray()
 
-categories = [ "house", "car", "tree", "smiley face",
-               "cactus", "guitar", "moon", "lightning", "star","The Eiffel Tower"]
+# categories = [ "house", "car", "tree", "smiley face",
+#                "cactus", "guitar", "moon", "lightning", "star","The Eiffel Tower"]
 
-client1categories =  [ "house", "car", "tree", "smiley face",
-              "cactus", "guitar", "moon", "lightning", "star","The Eiffel Tower"]
+client1categories = categories.copy()
 
-client2categories = [ "house", "car", "tree", "smiley face",
-               "cactus", "guitar", "moon", "lightning", "star","The Eiffel Tower"]
+client2categories = categories.copy()
 
 client1currentcategory = ""
 client2currentcategory = ""
@@ -40,11 +39,43 @@ client2currentcategory = selectCategoryForClient(client2categories)
 address_tuple = None
 c1tuple = None
 c2tuple= None
+
+pingInitialization = False
+client1_last_ping = time.time()
+client2_last_ping = time.time()
+client1_pinglock = False
+client2_pinglock = False
+
 def recv():
-    global address_tuple, image_buffer1, image_buffer2, client1currentcategory, client2currentcategory, client2categories, client1categories, c1tuple, c2tuple
+    global address_tuple, image_buffer1, image_buffer2, client1currentcategory, client2currentcategory, client2categories, client1categories
+    global c1tuple, c2tuple, pingInitialization, client2_last_ping, client1_last_ping, client2_pinglock, client1_pinglock
+    if pingInitialization:
+        if not client1_pinglock and time.time() - client1_last_ping > 1:
+            send("p", c1tuple)
+            client1_last_ping = time.time()
+            client1_pinglock = True
+        if not client2_pinglock and time.time() - client2_last_ping > 1:
+            send("p", c2tuple)
+            client2_last_ping = time.time()
+            client2_pinglock = True
+        if client1_pinglock and time.time() - client1_last_ping > 5:
+            send("v:", c2tuple)
+            resetGlobals()
+            print("c1 timed out")
+        if client2_pinglock and time.time() - client2_last_ping > 5:
+            send("v:", c1tuple)
+            resetGlobals()
+            print("c2 timed out")
     try:
         message, address = server_socket.recvfrom(30000)
         address_tuple = address
+        if message.startswith(b'ping'):
+            if address_tuple == c1tuple:
+                client1_pinglock = False
+                client1_last_ping = time.time()
+            else:
+                client2_pinglock = False
+                client2_last_ping = time.time()
         if message.startswith(b'req'):
             if c1tuple == None:
                 c1tuple = address_tuple
@@ -57,6 +88,7 @@ def recv():
                 send("t:" + str(len(client2categories)), c2tuple)
                 send("s:", c1tuple)
                 send("s:", c2tuple)
+                pingInitialization = True
             else:
                 send("err conn",address_tuple)
 
@@ -145,6 +177,12 @@ def send(response, tuple):
 
 def resetGlobals():
     global address_tuple,categories, image_buffer1, image_buffer2, client1currentcategory, client2currentcategory, client2categories, client1categories, c1tuple, c2tuple
+    global client1_last_ping, client2_last_ping, client1_pinglock, client2_pinglock, pingInitialization
+    client1_last_ping = time.time()
+    client2_last_ping = time.time()
+    client1_pinglock = False
+    client2_pinglock = False
+    pingInitialization = False
     c1tuple = None
     c2tuple = None
     image_buffer1.clear()
@@ -155,3 +193,5 @@ def resetGlobals():
     client2currentcategory = selectCategoryForClient(client2categories)
     address_tuple = None
 # Main loo
+
+
