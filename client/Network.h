@@ -1,34 +1,34 @@
-//
-// Created by benra on 6/4/2024.
-//
-
-#ifndef CLIENT_NETWORK_H
-#define CLIENT_NETWORK_H
+// Network.h
+#ifndef NETWORK_H
+#define NETWORK_H
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string>
-#include <chrono>
+
+#pragma comment(lib, "ws2_32.lib")
+
 class Network {
+private:
     WSADATA wsaData;
-    int iResult;
-    sockaddr_in serverMessage;
     SOCKET output;
-    char buffer[40];
-    sockaddr_in serverResponse;
-    int serverResponseSize;
-    std::string s;
-    std::string old = "";
+    sockaddr_in serverMessage;
+    char buffer[30000];
+    int iResult;
+    std::string receiveBuffer;  // NEW: Buffer to accumulate received data
+
 public:
-    void shutDown();
-    int init(std::string ip, int port);
+    bool imagereceived = true;
+
     int startup();
     int createSocket();
+    int init(std::string ip, int port);
+    int connectToServer();  // NEW: Connect to TCP server
     std::string receiveData();
-    void sendData(std::string s);
+    bool sendData(std::string s);
     void sendLocalImageData(std::string fileName, std::string password);
-    bool imagereceived = true;
+    void shutDown();
+    void closeSocket();
 };
 
-
-#endif //CLIENT_NETWORK_H
+#endif
