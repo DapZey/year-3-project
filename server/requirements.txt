@@ -1,7 +1,5 @@
-numpy
-scikit-learn
-quickdraw
 pillow
+numpy
 matplotlib
-tensorflow
-keras
+tensorflow==2.13.0
+keras==2.13.1
