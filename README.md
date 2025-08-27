@@ -9,6 +9,7 @@ Two players go head to head and are given categories by the cnn to draw, once th
 - **RayLib** (graphics library for the painting app)
 - **SKLEARN/KERAS** to train the CNN
 - **PILLOW** for image processing
+-  **WINSOCK** networking in c
 
 ## TODO:
 - **fix that one janky loop on the server side and test everything thoroughly**
