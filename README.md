@@ -11,6 +11,6 @@ Two players go head to head and are given categories by the cnn to draw, once th
 - **PILLOW** for image processing
 
 ## TODO:
-**fix that one janky loop on the server side and test everything thoroughly**
-**add less static networking on server, for now it assumes both clients have steady connections**
+- **fix that one janky loop on the server side and test everything thoroughly**
+- **add less static networking on server, for now it assumes both clients have steady connections**
 
