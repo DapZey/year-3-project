@@ -7,65 +7,67 @@
 #include <vector>
 #include "cmath"
 #include "fstream"
+
 std::string Network::receiveData() {
     memset(buffer, 0, sizeof(buffer));
-    int bytesReceived = recvfrom(output, buffer, sizeof(buffer), 0, (sockaddr*)&serverResponse, &serverResponseSize);
+    int bytesReceived = recv(output, buffer, sizeof(buffer), 0);
     if (bytesReceived == SOCKET_ERROR) {
         if (WSAGetLastError() != WSAEWOULDBLOCK) {
-//            std::cerr << "recvfrom() failed: " << WSAGetLastError() << "\n";
+//            std::cerr << "recv() failed: " << WSAGetLastError() << "\n";
             return "";
         }
+    } else if (bytesReceived == 0) {
+        // Connection closed by server
+        std::cerr << "Server closed connection\n";
+        return "";
     } else {
-        std::string str(buffer, sizeof(buffer));
+        std::string str(buffer, bytesReceived);
         return str;
     }
     return "";
 }
-void Network::sendData(std::string s) {
-    int message = sendto(output, s.c_str(), static_cast<int>(s.size()) + 1, 0, (sockaddr*)&serverMessage, sizeof(serverMessage));
+
+bool Network::sendData(std::string s) {
+    int message = send(output, s.c_str(), static_cast<int>(s.size()), 0);
     if (message == SOCKET_ERROR) {
-        std::cerr << "sendto() failed: " << WSAGetLastError() << "\n";
+        std::cerr << "send() failed: " << WSAGetLastError() << "\n";
+        return false;
     }
+    return true;
 }
+
 void Network::sendLocalImageData(std::string fileName, std::string password) {
     std::ifstream file(fileName, std::ios::binary);
     if (!file) {
         std::cerr << "Failed to open file: " << fileName << "\n";
         return;
     }
-
     std::vector<char> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
-
-    const std::string header = "CLIENTPNG:"+password+":";
-    const std::string endMarker = "CLIENTPNG_END:"+password;
-    const size_t CHUNK_SIZE = 20 * 1024;  // 20 KB
-
-    size_t totalSize = buffer.size();
-    size_t offset = 0;
-
-    while (offset < totalSize) {
-        size_t chunkLen = std::min(CHUNK_SIZE, totalSize - offset);
-        std::vector<char> packet;
-        packet.insert(packet.end(), header.begin(), header.end());
-        packet.insert(packet.end(), buffer.begin() + offset, buffer.begin() + offset + chunkLen);
-
-        int message = sendto(output, packet.data(), static_cast<int>(packet.size()), 0,
-                             (sockaddr*)&serverMessage, sizeof(serverMessage));
-        if (message == SOCKET_ERROR) {
-            std::cerr << "sendto() failed at chunk offset " << offset << ": " << WSAGetLastError() << "\n";
+    std::cout << "Sending image: " << fileName << " (" << buffer.size() << " bytes)" << std::endl;
+    const std::string header = "CLIENTPNG:";
+    std::vector<char> packet;
+    packet.insert(packet.end(), header.begin(), header.end());
+    packet.insert(packet.end(), buffer.begin(), buffer.end());
+    size_t totalSent = 0;
+    size_t packetSize = packet.size();
+    while (totalSent < packetSize) {
+        int sent = send(output, packet.data() + totalSent, static_cast<int>(packetSize - totalSent), 0);
+        if (sent == SOCKET_ERROR) {
+            std::cerr << "send() failed at offset " << totalSent << ": " << WSAGetLastError() << "\n";
             return;
         }
-
-        offset += chunkLen;
+        totalSent += sent;
+        std::cout << "Sent " << sent << " bytes, total: " << totalSent << "/" << packetSize << std::endl;
     }
-
-    // Send final "CLIENTPNG_END" message
-    int message = sendto(output, endMarker.c_str(), static_cast<int>(endMarker.size()), 0,
-                         (sockaddr*)&serverMessage, sizeof(serverMessage));
+    const std::string endMarker = "CLIENTPNG_END:";
+    int message = send(output, endMarker.c_str(), static_cast<int>(endMarker.size()), 0);
     if (message == SOCKET_ERROR) {
-        std::cerr << "sendto() failed for END marker: " << WSAGetLastError() << "\n";
+        std::cerr << "send() failed for END marker: " << WSAGetLastError() << "\n";
+    } else {
+        std::cout << "Image sent successfully!" << std::endl;
     }
+    imagereceived = false;
 }
 
 int Network::startup() {
@@ -76,30 +78,35 @@ int Network::startup() {
     }
     return 0;
 }
+
 int Network::createSocket() {
-    output = socket(AF_INET, SOCK_DGRAM, 0);
+    output = socket(AF_INET, SOCK_STREAM, 0);
     if (output == INVALID_SOCKET) {
         std::cerr << "Error creating socket: " << WSAGetLastError() << "\n";
         return 1;
     }
+
+    // Set socket to non-blocking mode
     u_long mode = 1;
     ioctlsocket(output, FIONBIO, &mode);
-    serverResponseSize = sizeof(serverResponse);
+
     return 0;
 }
+
 void Network::shutDown() {
     closesocket(output);
     WSACleanup();
 }
-int Network::init(std::string ip, int port){
+
+int Network::init(std::string ip, int port) {
     serverMessage.sin_family = AF_INET;
-    if (port == 1){
+    if (port == 1) {
         serverMessage.sin_port = htons(54000);
     }
     else if (port == 2) {
-        std::cout<<"chosen port 2\n";
+        std::cout << "chosen port 2\n";
         serverMessage.sin_port = htons(54001);
-    }else {
+    } else {
         return 1;
     }
 
@@ -108,4 +115,23 @@ int Network::init(std::string ip, int port){
         return 1;
     }
     return 0;
+}
+
+int Network::connectToServer() {
+    int result = connect(output, (sockaddr*)&serverMessage, sizeof(serverMessage));
+    if (result == SOCKET_ERROR) {
+        int error = WSAGetLastError();
+        if (error != WSAEWOULDBLOCK) {
+            std::cerr << "connect() failed: " << error << "\n";
+            return 1;
+        }
+    }
+    return 0;
+}
+void Network::closeSocket() {
+    if (output != INVALID_SOCKET) {
+        closesocket(output);
+        output = INVALID_SOCKET;
+    }
+
 }
